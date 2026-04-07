@@ -1,0 +1,9 @@
+{
+  "include": ["aegis_ai"],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": ["."]
+    }
+  ]
+}

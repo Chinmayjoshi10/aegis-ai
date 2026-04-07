@@ -1,0 +1,129 @@
+[
+  {
+    "index": 0,
+    "timestamp": "2025-12-25T20:48:02.314271",
+    "risk": null,
+    "escalation": null,
+    "features": null,
+    "prev_hash": "GENESIS",
+    "hash": "GENESIS"
+  },
+  {
+    "index": 1,
+    "timestamp": "2025-12-25T20:48:02.380914",
+    "risk": 0.0,
+    "escalation": false,
+    "features": {
+      "num_rows": 3.0,
+      "value_mean": 2.0,
+      "value_z": 0.0,
+      "amount_mean": 20.0,
+      "amount_z": 0.0
+    },
+    "prev_hash": "GENESIS",
+    "hash": "f2ff85e14c726a7ea937393555cb53faf27b05e02085963c636e18173352d147"
+  },
+  {
+    "index": 2,
+    "timestamp": "2025-12-25T21:13:14.355751",
+    "risk": 0.0,
+    "escalation": false,
+    "features": {
+      "num_rows": 3.0,
+      "value_mean": 2.0,
+      "value_z": 0.0,
+      "amount_mean": 20.0,
+      "amount_z": 0.0
+    },
+    "prev_hash": "f2ff85e14c726a7ea937393555cb53faf27b05e02085963c636e18173352d147",
+    "hash": "fce41610cd78d52ef0d143890abb33d8d41ee67b3658784b158952b1ff984341"
+  },
+  {
+    "index": 3,
+    "timestamp": "2025-12-25T21:19:14.231344",
+    "risk": 0.0,
+    "escalation": false,
+    "features": {
+      "num_rows": 3.0,
+      "value_mean": 2.0,
+      "value_z": 0.0,
+      "amount_mean": 20.0,
+      "amount_z": 0.0
+    },
+    "prev_hash": "fce41610cd78d52ef0d143890abb33d8d41ee67b3658784b158952b1ff984341",
+    "hash": "e689db1aa2dc0f41710f09df411a88704b49e72f84c03a5dde8bac7514fe2797"
+  },
+  {
+    "index": 4,
+    "timestamp": "2025-12-25T21:26:05.246433",
+    "risk": 0.0,
+    "escalation": false,
+    "features": {
+      "num_rows": 3.0,
+      "value_mean": 2.0,
+      "value_z": 0.0,
+      "amount_mean": 20.0,
+      "amount_z": 0.0
+    },
+    "prev_hash": "e689db1aa2dc0f41710f09df411a88704b49e72f84c03a5dde8bac7514fe2797",
+    "hash": "23f0078c21021c2a2505a472e213c558b843eb02f0039c1c0279bde00e808a68"
+  },
+  {
+    "index": 5,
+    "timestamp": "2025-12-25T22:14:04.462250",
+    "risk": 0.0,
+    "escalation": false,
+    "features": {
+      "num_rows": 3.0,
+      "value_mean": 2.0,
+      "value_z": 0.0,
+      "amount_mean": 20.0,
+      "amount_z": 0.0
+    },
+    "prev_hash": "23f0078c21021c2a2505a472e213c558b843eb02f0039c1c0279bde00e808a68",
+    "hash": "aa031e86c0dec429fe3d04def554b9ec2d9c5bace92619f4881371194dacb9e1"
+  },
+  {
+    "index": 6,
+    "timestamp": "2025-12-25T22:25:55.261391",
+    "risk": 0.0,
+    "escalation": false,
+    "features": {
+      "num_rows": 3.0,
+      "value_mean": 2.0,
+      "value_z": 0.0,
+      "amount_mean": 20.0,
+      "amount_z": 0.0
+    },
+    "prev_hash": "aa031e86c0dec429fe3d04def554b9ec2d9c5bace92619f4881371194dacb9e1",
+    "hash": "d8bd6316cec0e7da6575d8b3dcc16095a77bd69576feda8e8a141f3527011338"
+  },
+  {
+    "index": 7,
+    "timestamp": "2025-12-25T22:35:57.792399",
+    "risk": {
+      "risk_state": "CRITICAL",
+      "risk_score": 5.0,
+      "risk_factors": [
+        "num_rows",
+        "value_mean",
+        "value_z",
+        "amount_mean",
+        "amount_z"
+      ]
+    },
+    "escalation": {
+      "level": "SHUTDOWN",
+      "notify": true
+    },
+    "features": {
+      "num_rows": 3.0,
+      "value_mean": 2.0,
+      "value_z": 0.0,
+      "amount_mean": 20.0,
+      "amount_z": 0.0
+    },
+    "prev_hash": "d8bd6316cec0e7da6575d8b3dcc16095a77bd69576feda8e8a141f3527011338",
+    "hash": "a6edace1e43e07bfe0b71b73f99c8167accebaeb54136fa43eb487859b6cd2ef"
+  }
+]
