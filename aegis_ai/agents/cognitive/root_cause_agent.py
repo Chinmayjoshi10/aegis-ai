@@ -1,14 +1,12 @@
 import os
-import shutil
 
 
 class RootCauseAgent:
     def __init__(self):
         """Root cause analysis is optional.
 
-        This agent MUST NOT block the cognition pipeline if the local LLM stack
-        (Ollama) is unavailable or slow. We therefore:
-        - require the `ollama` executable to be present
+        This agent MUST NOT block the cognition pipeline if the LLM provider
+        is unavailable or slow. We therefore:
         - enforce a short timeout
         - degrade gracefully to a deterministic placeholder
         """
@@ -16,17 +14,15 @@ class RootCauseAgent:
         # Keep this short so the cognition pipeline never stalls.
         self.timeout_s = int(os.environ.get("AEGIS_OLLAMA_TIMEOUT", "1"))
 
-        # Hard-gate on executable presence to prevent hangs.
-        if shutil.which("ollama") is None:
-            self.brain = None
-            return
-
         try:
-            from aegis_ai.llm.ollama_provider import OllamaProvider
+            from aegis_ai.llm.call_gemma import _get_provider
             from aegis_ai.brains.root_cause_brain import RootCauseBrain
 
-            provider = OllamaProvider(model=os.environ.get("AEGIS_OLLAMA_MODEL", "llama3"))
-            self.brain = RootCauseBrain(provider)
+            provider = _get_provider()
+            if provider.is_available():
+                self.brain = RootCauseBrain(provider)
+            else:
+                self.brain = None
         except Exception:
             self.brain = None  # LLM layer not ready yet
 

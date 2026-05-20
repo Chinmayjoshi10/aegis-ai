@@ -5,9 +5,11 @@ from sqlalchemy.orm import Session
 
 # LLM provider — optional, disabled when no API key is configured
 try:
-    from aegis_ai.llm.ollama_provider import OllamaProvider as _LLMProvider
+    from aegis_ai.llm.call_gemma import _get_provider as _get_llm_provider
+    _LLMProvider = True  # Sentinel — actual provider fetched lazily
 except ImportError:
     _LLMProvider = None
+    _get_llm_provider = None
 
 
 class _NoOpLLM:
@@ -227,7 +229,13 @@ class SemanticMapper:
         ollama_timeout_s: int | None = None,
     ):
         self.session = session
-        self.llm = _LLMProvider(model=model) if _LLMProvider else _NoOpLLM()
+        if _LLMProvider and _get_llm_provider:
+            try:
+                self.llm = _get_llm_provider()
+            except Exception:
+                self.llm = _NoOpLLM()
+        else:
+            self.llm = _NoOpLLM()
         self.ollama_timeout_s = int(ollama_timeout_s or 8)
 
     # ----------------------------------------------------------------
@@ -294,17 +302,25 @@ Columns to map: {columns}"""
     # ----------------------------------------------------------------
     # MAIN ENTRY
     # ----------------------------------------------------------------
-    def map_columns(self, df, tenant: str, domain: str):
+    def map_columns(self, df, tenant: str, domain: str, *, preserve_columns: list[str] | None = None):
         """
         Returns:
         - cleaned + renamed DataFrame
         - semantic mapping dict {original_col -> mapped_col}
+
+        Args:
+            preserve_columns: columns to keep in the DataFrame even if the
+                              metric filter would drop them (e.g. profiler-
+                              identified dimensions needed by segment engine).
         """
 
         # ------------------------------------------------------------
         # STEP 0 — HARD DROP JUNK COLUMNS
+        # Dimension columns identified by the profiler are preserved
+        # so that the segment engine can use them downstream.
         # ------------------------------------------------------------
-        valid_cols = [c for c in df.columns if _is_valid_column(c)]
+        preserve = set(preserve_columns or [])
+        valid_cols = [c for c in df.columns if _is_valid_column(c) or c in preserve]
         df = df[valid_cols]
 
         original_cols = list(df.columns)
