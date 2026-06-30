@@ -98,7 +98,8 @@ class SalesAdapter:
         # Ground truth memory
         # ─────────────────────────────────────────────
         self.store.write(
-            [
+            tenant=str(state.get("tenant_id") or "system"),
+            events=[
                 {"domain": "sales", "metric": "flow_rate", "value": flow_rate},
                 {"domain": "finance", "metric": "inflow_velocity", "value": inflow_velocity}
             ],

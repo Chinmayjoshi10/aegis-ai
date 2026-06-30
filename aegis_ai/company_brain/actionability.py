@@ -2,6 +2,10 @@ from typing import Dict, List
 import numpy as np
 
 
+def _to_numeric(arr) -> np.ndarray:
+    return np.asarray(arr, dtype=np.float64)
+
+
 def compute_actionability_likelihood(
     metric: str,
     metric_series: Dict[str, List[float]],
@@ -15,7 +19,11 @@ def compute_actionability_likelihood(
     if not series or len(series) < 10:
         return 0.3  # unknown defaults low
 
-    x = np.array(series)
+    x = _to_numeric(series)
+    if x.size == 0 or np.isnan(x).all():
+        return 0.3
+
+    x = np.nan_to_num(x, nan=0.0)
 
     # volatility proxy
     volatility = np.std(x) / (abs(np.mean(x)) + 1e-6)

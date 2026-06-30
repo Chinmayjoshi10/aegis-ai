@@ -75,6 +75,9 @@ class TenantMiddleware:
         public_paths: Sequence[str] = (
             "/",
             "/health",
+            "/health/llm",
+            "/health/llm/warmup",
+            "/ready",
             "/docs",
             "/docs/oauth2-redirect",
             "/openapi.json",

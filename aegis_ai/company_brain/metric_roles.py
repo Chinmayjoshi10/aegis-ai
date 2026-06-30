@@ -1,12 +1,28 @@
 """
-Metric Role Resolver (Safe Default Implementation)
+Metric Role Resolver
 
-This module provides a stable fallback for resolving metric roles.
-It ensures the system does not break if advanced role detection is absent.
+F-04: Wires the behavioral inference engine (metric_role_inference.py)
+into the pipeline. Returns {metric_name: role_string} for metrics whose
+statistical signature maps to a known role with sufficient confidence.
 """
 
 from typing import Dict, Any
+import logging
+
 import pandas as pd
+
+log = logging.getLogger("aegis_ai.company_brain.metric_roles")
+
+# Behavioral score → economic role mapping
+_SCORE_TO_ROLE: Dict[str, str] = {
+    "efficiency": "VALUE",
+    "risk":       "QUALITY",
+    "outcome":    "OUTPUT",
+    "cost_driver": "INPUT",
+}
+
+# Minimum score to assign a role — below this, keep UNKNOWN
+_MIN_ROLE_SCORE = 0.4
 
 
 def resolve_metric_roles(
@@ -15,12 +31,34 @@ def resolve_metric_roles(
     baseline_stats: Dict[str, Dict[str, float]],
 ) -> Dict[str, Any]:
     """
-    Default implementation for metric role resolution.
+    F-04: Resolve metric roles using behavioral inference.
 
-    Returns empty mapping to keep downstream detectors functional
-    without enforcing role-based logic.
+    Uses distributional signatures (CV, range, outlier ratio) to infer
+    whether a metric behaves like an efficiency metric, risk metric, etc.
 
-    This is intentionally minimal and deterministic.
+    Returns: {metric_name: "INPUT" | "OUTPUT" | "VALUE" | "QUALITY" | "UNKNOWN"}
+    Fail-open: returns {} on any error.
     """
+    try:
+        from .metric_role_inference import infer_metric_roles
+    except ImportError:
+        log.warning("[METRIC_ROLES] metric_role_inference not available")
+        return {}
 
-    return {}
+    try:
+        inferred = infer_metric_roles(baseline_stats)
+    except Exception as e:
+        log.warning(f"[METRIC_ROLES] inference failed: {e}")
+        return {}
+
+    roles: Dict[str, str] = {}
+    for metric, scores in inferred.items():
+        if not isinstance(scores, dict):
+            continue
+        # Pick the highest-scoring role
+        best_role = max(scores, key=lambda k: scores.get(k, 0.0))
+        best_score = scores.get(best_role, 0.0)
+        if best_score >= _MIN_ROLE_SCORE:
+            roles[metric] = _SCORE_TO_ROLE.get(best_role, "UNKNOWN")
+
+    return roles

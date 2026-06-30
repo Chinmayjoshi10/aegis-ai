@@ -35,6 +35,7 @@ def run_company_brain_v2(
     df: pd.DataFrame,
     historical_row_count: int,
     baseline_numeric_stats: Dict[str, Dict[str, float]],
+    bias_baseline_stats: Dict[str, Dict[str, float]] | None = None,
     domain: str = "data",
 ) -> Dict[str, Any]:
 
@@ -61,10 +62,18 @@ def run_company_brain_v2(
         log.error(f"DominanceDetector failed: {e}", exc_info=True)
 
     try:
-        result = BiasDetector().detect(
-            df=df,
-            baseline_stats=baseline_numeric_stats,
-        )
+        # Use previous baseline if available; otherwise fall back to
+        # current-upload stats for intra-dataset drift detection.
+        # CUSUM still detects within-dataset trends (early vs late rows)
+        # even when baseline == current stats.
+        _bias_stats = bias_baseline_stats or baseline_numeric_stats
+        if _bias_stats:
+            result = BiasDetector().detect(
+                df=df,
+                baseline_stats=_bias_stats,
+            )
+        else:
+            result = []  # No stats at all → no bias detection
         if isinstance(result, list):
             candidates.extend(result)
     except Exception as e:
@@ -83,16 +92,21 @@ def run_company_brain_v2(
     # ── 2. Confidence Gating ───────────────────────────
     for candidate in candidates:
         try:
+            # F-03: Default persistence/consistency to 0.7 (neutral-positive).
+            # 1.0 = "confirmed across 12 months / all segments" — not earned.
+            # 0.7 = "no counter-evidence" — honest default that doesn't
+            #        penalise first-upload signals for missing temporal data.
+            # 0.5 was too conservative: it created a confidence ceiling of
+            #        ~0.725, making INSIGHTFUL state nearly unreachable.
             confidence = compute_confidence(
                 row_count=historical_row_count,
                 signal_score=candidate.get("signal_score", 0.0),
-                temporal_persistence_score=1.0,
-                consistency_score=1.0,
+                temporal_persistence_score=0.7,
+                consistency_score=0.7,
                 penalty_score=0.0,
             )
 
-            if confidence < 0.7:
-                continue
+            candidate["low_confidence"] = confidence < 0.7
 
             final_insights.append({
                 "primitive": candidate.get("primitive"),
@@ -102,11 +116,14 @@ def run_company_brain_v2(
                 "summary": _generate_summary(candidate),
                 "confidence": round(confidence, 3),
                 "evidence": candidate.get("evidence", {}),
+                "direction": candidate.get("direction"),
+                "signal_score": candidate.get("signal_score"),
             })
 
         except Exception as e:
             log.warning(f"candidate processing failed: {e}")
             continue
+            
 
     # ── 3. Resolve System State ────────────────────────
     try:
@@ -120,7 +137,7 @@ def run_company_brain_v2(
 
     # ── 4. Narrative Layer ────────────────────────────
     try:
-        narrative = _generate_narrative(
+        narrative = generate_narrative(
             system_state=system_state,
             insights=final_insights,
             domain=domain,
@@ -134,11 +151,8 @@ def run_company_brain_v2(
     return {
         "system_state": system_state.value,
         "narrative": narrative,
-        "insights": (
-            final_insights
-            if system_state == SystemState.INSIGHTFUL
-            else []
-        ),
+        "insights": final_insights,
+        "metric_roles": metric_roles,  # F-04: pass through for event_engine
         "metadata": {
             "candidate_count": len(candidates),
             "final_insight_count": len(final_insights),
@@ -154,7 +168,7 @@ def run_company_brain_v2(
 # Converts AEGIS output into plain English
 # A CFO with zero data background should understand this
 # ──────────────────────────────────────────────────────
-def _generate_narrative(
+def generate_narrative(
     system_state: SystemState,
     insights: List[Dict[str, Any]],
     domain: str,
@@ -189,6 +203,13 @@ def _generate_narrative(
         f"AEGIS has detected {total} structural pattern{'s' if total != 1 else ''} "
         f"in your {domain} data with sufficient confidence to report."
     )
+
+    top_signal = max(insights, key=lambda x: (x.get("confidence", 0), x.get("signal_score", 0))) if insights else None
+    if top_signal:
+        ts_type = top_signal.get("primitive", "Signal")
+        ts_metric = top_signal.get("metric", "A key metric")
+        ts_score = int(top_signal.get("signal_score", 0) * 100)
+        sentences.append(f"The most dominant structural pattern is a {ts_score}% confidence {ts_type} involving {ts_metric}.")
 
     for b in bias_insights[:2]:
         direction = b.get("subtype", "").lower()
@@ -226,12 +247,21 @@ def _generate_narrative(
     for t in tradeoff_insights[:1]:
         metrics = t.get("metrics") or ["Metric A", "Metric B"]
         conf = int(t.get("confidence", 0) * 100)
+        pair_class = t.get("evidence", {}).get("pair_classification", "UNKNOWN")
         if len(metrics) >= 2:
-            sentences.append(
-                f"A structural tradeoff exists: improving {metrics[0]} "
-                f"is associated with increased risk in {metrics[1]} "
-                f"({conf}% confidence)."
-            )
+            # F-02: Use pair classification for economically correct language
+            if pair_class == "CONFLICT":
+                sentences.append(
+                    f"A conflict exists between {metrics[0]} and {metrics[1]}: "
+                    f"these metrics are moving in opposite directions when they "
+                    f"should move together ({conf}% confidence)."
+                )
+            else:
+                sentences.append(
+                    f"A structural tradeoff exists between {metrics[0]} and "
+                    f"{metrics[1]}: improving one is associated with deterioration "
+                    f"in the other ({conf}% confidence)."
+                )
 
     return " ".join(sentences)
 
@@ -242,6 +272,11 @@ def _generate_narrative(
 def _generate_summary(candidate: Dict[str, Any]) -> str:
     primitive = candidate.get("primitive")
     subtype = candidate.get("subtype")
+    # `direction` is set by the correctness layer once actual change is known.
+    # If it disagrees with the detector's subtype (e.g. BIAS detector fired
+    # but actual change was within the FLAT band), direction is authoritative.
+    direction_field = (candidate.get("direction") or "").upper()
+    metric_name = candidate.get("metric") or "This metric"
 
     if primitive == "DOMINANCE":
         if subtype in ("RANGE_STD", "RANGE_QUANTILE"):
@@ -252,10 +287,23 @@ def _generate_summary(candidate: Dict[str, Any]) -> str:
             return "This metric is governed by a single dominant category."
 
     if primitive == "BIAS":
+        # Guard: BIAS + FLAT actual direction is a semantic contradiction.
+        # Emit a stability statement instead of a "drifting" one.
+        if direction_field in ("FLAT", "STABLE", "NONE"):
+            return (
+                f"{metric_name} is stable — no significant directional drift "
+                f"detected relative to its historical baseline."
+            )
         direction = subtype.lower() if subtype else "directionally"
         return (
             f"This metric is persistently drifting "
             f"{direction} from its historical baseline."
+        )
+
+    if primitive in ("STABLE", "NONE"):
+        return (
+            f"{metric_name} is stable — no significant movement detected "
+            f"relative to its historical baseline."
         )
 
     if primitive == "TRADEOFF":

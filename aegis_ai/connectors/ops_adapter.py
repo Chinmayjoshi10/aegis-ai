@@ -105,7 +105,8 @@ class OpsAdapter:
         # Ground truth memory for decay & coupling
         # ─────────────────────────────────────────────
         self.store.write(
-            [
+            tenant=str(state.get("tenant_id") or "system"),
+            events=[
                 {"domain": "ops", "metric": "throughput", "value": effective_yield},
                 {"domain": "ops", "metric": "systemic_viscosity", "value": systemic_viscosity},
                 {"domain": "ops", "metric": "entropy", "value": entropy_loss}

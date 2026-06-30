@@ -1,12 +1,14 @@
 """
-AEGIS Column Intelligence Filter
-==================================
-Determines which columns are genuine business metrics
-vs technical encodings, IDs, or cyclic columns.
+AEGIS Column Intelligence Filter — Universal Edition
+=====================================================
+Replaces: aegis_ai/sanitizer/column_filter.py
 
-Universal — works across all domains and datasets.
-Deterministic — same input always produces same decision.
-Fail-open — when uncertain, include the column.
+CHANGES vs original:
+  1. High-cardinality numeric ID detection using coefficient of variation
+  2. Explicit ITEM CODE / product code detection (numeric, wide range, ID-suffix)
+  3. YEAR and MONTH excluded from metric analysis (they are dimensions, not metrics)
+  4. Reason string returned from is_metric_column is now more specific
+  5. _FORCE_INCLUDE expanded to prevent false exclusions on legitimate metrics
 """
 
 import re
@@ -16,7 +18,6 @@ import pandas as pd
 
 # ─────────────────────────────────────────────────────
 # HARD-EXCLUDE NAME PATTERNS
-# Columns whose names indicate they are never business metrics
 # ─────────────────────────────────────────────────────
 
 _EXCLUDE_EXACT = {
@@ -29,18 +30,23 @@ _EXCLUDE_EXACT = {
     "seq", "sequence", "sequence_id",
     # Raw timestamps
     "unix_timestamp", "epoch", "timestamp_ms", "timestamp_s",
-    # Geographic coordinates (not business metrics)
+    # Geographic coordinates
     "latitude", "longitude", "lat", "lng", "lon",
     "country", "order_country", "customer_country",
     "order_state", "customer_state", "order_region",
-    # Postal/zip codes (geographic, not metrics)
+    # Postal codes
     "zipcode", "zip_code", "zip", "postal_code", "postcode", "pincode",
-    # PII fields (never business metrics)
+    # PII fields
     "email", "password", "phone", "mobile", "ssn", "pan",
     "credit_card", "card_number", "cvv",
-    # Text/description fields
+    # Text/description
     "description", "notes", "comments", "remarks", "address",
-    "street", "city", "country", "state", "name",
+    "street", "city", "name",
+    # NEW: Temporal dimensions (not metrics)
+    "year", "yr", "fiscal_year", "fy",
+    "month", "mo", "mth",
+    "quarter", "qtr",
+    "week", "day",
 }
 
 _EXCLUDE_CONTAINS_WORDS = {
@@ -57,10 +63,13 @@ _EXCLUDE_STARTSWITH = (
 )
 
 _EXCLUDE_CONTAINS = (
-    "_id",       # customer_id, order_id, product_id etc
-    "_key",      # surrogate keys
-    "_pk",       # primary keys
-    "_fk",       # foreign keys
+    "_id",
+    "_key",
+    "_pk",
+    "_fk",
+    "_code",     # NEW: item_code, product_code, order_code etc
+    "_number",   # NEW: order_number, part_number etc
+    "_no",       # NEW: invoice_no, part_no etc
 )
 
 # Column names that are ALWAYS valid metrics regardless of other signals
@@ -68,18 +77,25 @@ _FORCE_INCLUDE = {
     "revenue", "sales", "cost", "profit", "margin", "quantity",
     "price", "amount", "units", "volume", "rate", "score",
     "headcount", "total", "sum", "avg", "average", "ratio",
+    "transfers", "transfer",                # inventory/logistics
+    "spend", "budget", "roi", "ctr", "cvr", # marketing
+    "defects", "downtime", "uptime", "oee",  # operations
+    "salary", "wage", "attrition", "churn",  # HR
 }
+
+# Coefficient of variation threshold above which a numeric column is
+# treated as a likely identifier (numeric ID / product code)
+_CV_IDENTIFIER_THRESHOLD = 3.0
 
 
 # ─────────────────────────────────────────────────────
-# NAME-BASED FILTER (no data needed)
+# NAME-BASED FILTER
 # ─────────────────────────────────────────────────────
 
 def is_valid_column_name(col: str) -> bool:
     """
-    Returns False if the column name indicates it is
-    a technical encoding, ID, or cyclic field.
-    Returns True if it should be analyzed as a metric.
+    Returns False if the column name indicates it is a technical encoding,
+    ID, or cyclic/dimension field. Returns True if it should be analyzed.
     """
     c = col.strip().lower()
     normalized = re.sub(r"[_\-\.\s]+", "_", c).strip("_")
@@ -100,7 +116,7 @@ def is_valid_column_name(col: str) -> bool:
     if any(pattern in normalized for pattern in _EXCLUDE_CONTAINS):
         return False
 
-    # Hard exclude by word-level match (e.g. "customer_zipcode" contains "zipcode")
+    # Hard exclude by word-level match
     for word in _EXCLUDE_CONTAINS_WORDS:
         if word in normalized:
             return False
@@ -109,8 +125,7 @@ def is_valid_column_name(col: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────
-# DATA-BASED FILTER (uses column values)
-# Applied in RealityReader after name filter passes
+# DATA-BASED FILTER
 # ─────────────────────────────────────────────────────
 
 def is_metric_column(
@@ -124,12 +139,11 @@ def is_metric_column(
     """
     Returns (is_metric, reason_if_excluded).
 
-    Detects columns that are numeric but are actually:
-    - Cyclic time encodings (NSM, hour, day-of-year)
-    - Degenerate columns with almost no variation
-    - Pure row counters
-
-    Fail-open: returns (True, None) when uncertain.
+    Extended to detect:
+      - Numeric ID columns (high CV, ID-sounding name)
+      - Product/item codes (wide range, low information)
+      - Temporal dimensions (YEAR, MONTH etc) — already caught by name filter,
+        but enforced here as a second gate
     """
 
     # Name filter first
@@ -144,7 +158,7 @@ def is_metric_column(
     n_rows = len(s)
     unique_ratio = n_unique / max(n_rows, 1)
 
-    # Degenerate — single value (constant column like Product Status = all 0s)
+    # Degenerate — constant column
     if n_unique <= 1:
         return False, "constant_column"
 
@@ -152,11 +166,7 @@ def is_metric_column(
     if (s == 0).all():
         return False, "all_zeros"
 
-    # Check for redacted/masked PII (e.g. all values = "XXXXXXXXX")
-    # By the time we get here it's numeric — but string columns get caught by name filter
-
-    # Check for sequential row ID pattern
-    # e.g. Order Item Id: values 1 to 180519 perfectly sequential
+    # Sequential row ID pattern
     try:
         if n_unique == n_rows:
             sorted_vals = sorted(s.values)
@@ -169,8 +179,25 @@ def is_metric_column(
     except Exception:
         pass
 
-    # Check for cyclic integer encoding pattern
-    # e.g. NSM: integer values, low unique count, bounded range
+    # NEW: High coefficient-of-variation numeric identifier detection
+    # ITEM CODE, Product_Code, etc. are numeric but have CV >> 1
+    # because they span a wide range (e.g. 2 to 3,480,003) with no
+    # business meaning to their magnitude.
+    try:
+        mean = abs(float(s.mean()))
+        std = float(s.std())
+        if mean > 0:
+            cv = std / mean
+            _ID_PATTERN = re.compile(
+                r"\b(id|code|key|number|no|num|pk|fk|ref|sku|serial)\b",
+                re.IGNORECASE,
+            )
+            if cv > _CV_IDENTIFIER_THRESHOLD and _ID_PATTERN.search(col):
+                return False, f"numeric_identifier_high_cv_{cv:.1f}x"
+    except Exception:
+        pass  # fail-open
+
+    # Cyclic integer encoding pattern
     try:
         is_integer_like = (s == s.round(0)).all() and s.dtype in (
             "int32", "int64", "float32", "float64"
@@ -187,6 +214,6 @@ def is_metric_column(
             return False, "likely_cyclic_encoding"
 
     except Exception:
-        pass  # fail-open
+        pass
 
-    return True, None 
+    return True, None

@@ -78,7 +78,8 @@ class LogisticsAdapter:
         # Ground truth decay memory
         # ─────────────────────────────────────────────
         self.store.write(
-            [{"domain": "logistics", "metric": "inventory_units", "value": inventory}],
+            tenant=str(state.get("tenant_id") or "system"),
+            events=[{"domain": "logistics", "metric": "inventory_units", "value": inventory}],
             confidence=confidence
         )
 

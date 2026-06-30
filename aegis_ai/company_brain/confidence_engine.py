@@ -133,11 +133,17 @@ def compute_confidence(
     temporal_persistence_score: float,
     consistency_score: float,
     penalty_score: float = 0.0,
+    effect_size_factor: float = 1.0,
+    ordered_data_factor: float = 1.0,
 ) -> float:
     """
     Computes final confidence score for any insight candidate.
 
     SINGLE SOURCE OF TRUTH.
+
+    F-08: All confidence adjustments must flow through this function.
+    effect_size_factor:  multiplier based on delta_pct (0.3 for tiny, 0.6 for small, 1.0 default)
+    ordered_data_factor: 0.6 for unordered BIAS signals, 1.0 otherwise
     """
 
     # Weights (LOCKED)
@@ -156,5 +162,9 @@ def compute_confidence(
         + W_CONSISTENCY * clamp(consistency_score)
         - W_PENALTY * clamp(penalty_score)
     )
+
+    # F-08: Apply consolidated factors (replaces ad-hoc mutations in event_engine)
+    confidence *= clamp(effect_size_factor)
+    confidence *= clamp(ordered_data_factor)
 
     return clamp(confidence)

@@ -62,6 +62,27 @@ def get_last_baseline(
     )
 
 
+def get_upload_count(
+    session: Session,
+    tenant: str,
+    domain: str,
+) -> int:
+    """
+    F-05: Count distinct uploads for this tenant+domain.
+    Used for baseline maturity gating.
+    """
+    try:
+        from sqlalchemy import func
+        result = (
+            session.query(func.count(func.distinct(RealityBaseline.upload_date)))
+            .filter_by(tenant_id=tenant, domain=domain)
+            .scalar()
+        )
+        return int(result or 0)
+    except Exception:
+        return 0
+
+
 def persist_drift_event(
     session: Session,
     tenant: str,

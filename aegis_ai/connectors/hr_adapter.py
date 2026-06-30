@@ -89,7 +89,8 @@ class HRAdapter:
 
         # Ground truth store for cooling-rate / drift learning
         self.store.write(
-            [
+            tenant=str(state.get("tenant_id") or "system"),
+            events=[
                 {"domain": "hr", "metric": "burnout_pressure", "value": burnout_heat},
                 {"domain": "ops", "metric": "systemic_impedance", "value": systemic_impedance},
                 {"domain": "hr", "metric": "attrition_rate", "value": structural_attrition}

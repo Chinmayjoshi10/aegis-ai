@@ -1,6 +1,13 @@
 import pandas as pd
 import numpy as np
 import re
+
+# Domain validation rules — flags impossible values, never blocks pipeline
+_DOMAIN_RULES = {
+    "Lead_Response_Time": lambda v: v >= 0,
+    "Price_per_Unit":     lambda v: v > 0,
+    "Quantity":           lambda v: v >= 0,
+}
  
  
 class RealityReader:
@@ -138,6 +145,15 @@ class RealityReader:
                 else:
                     three_sigma_outliers = 0
  
+                # Domain validation (non-blocking)
+                invalid_count = 0
+                if c in _DOMAIN_RULES:
+                    try:
+                        rule = _DOMAIN_RULES[c]
+                        invalid_count = int((~s.apply(rule)).sum())
+                    except Exception:
+                        pass
+
                 stats[c] = {
                     "mean": mean,
                     "median": median,
@@ -148,6 +164,7 @@ class RealityReader:
                     "null_ratio": round(null_ratio, 4),
                     "zero_ratio": round(zero_ratio, 4),
                     "three_sigma_outliers": three_sigma_outliers,
+                    "invalid_count": invalid_count,
                 }
             except Exception:
                 continue

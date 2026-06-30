@@ -30,13 +30,29 @@ DIRECTION_EPSILON = 0.05
 BASE_CONFIDENCE = 0.85
 
 
+def _to_numeric(arr: np.ndarray) -> np.ndarray:
+    return np.asarray(arr, dtype=np.float64)
+
+
 def _pearson_direction(x: np.ndarray, y: np.ndarray) -> str:
+    x = _to_numeric(x)
+    y = _to_numeric(y)
+
     if len(x) < 5 or len(y) < 5:
         return "unknown"
-    if np.std(x) == 0 or np.std(y) == 0:
+    if np.isnan(x).all() or np.isnan(y).all():
+        return "unknown"
+
+    x = np.nan_to_num(x, nan=0.0)
+    y = np.nan_to_num(y, nan=0.0)
+
+    if np.std(x) < 1e-6 or np.std(y) < 1e-6:
         return "unknown"
 
     corr = np.corrcoef(x, y)[0, 1]
+    if not np.isfinite(corr):
+        return "unknown"
+
     if corr > DIRECTION_EPSILON:
         return "positive"
     if corr < -DIRECTION_EPSILON:
@@ -45,6 +61,18 @@ def _pearson_direction(x: np.ndarray, y: np.ndarray) -> str:
 
 
 def _normalized_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    y_true = _to_numeric(y_true)
+    y_pred = _to_numeric(y_pred)
+
+    if y_true.size == 0 or y_pred.size == 0:
+        return 1.0
+
+    if np.isnan(y_true).all() or np.isnan(y_pred).all():
+        return 1.0
+
+    y_true = np.nan_to_num(y_true, nan=0.0)
+    y_pred = np.nan_to_num(y_pred, nan=0.0)
+
     rmse = math.sqrt(np.mean((y_true - y_pred) ** 2))
     std = np.std(y_true)
     return rmse / std if std > 0 else 1.0
@@ -78,8 +106,8 @@ def run_xgboost_impact_analysis(
         return None
 
     try:
-        X = np.tile(list(features.values()), (len(target_series), 1))
-        y = np.array(target_series)
+        X = _to_numeric(np.tile(list(features.values()), (len(target_series), 1)))
+        y = _to_numeric(target_series)
 
         dtrain = xgb.DMatrix(X, label=y)
 
@@ -90,6 +118,7 @@ def run_xgboost_impact_analysis(
             "subsample": 0.8,
             "colsample_bytree": 0.8,
             "verbosity": 0,
+            "seed": 42,  # F-12: deterministic for reproducibility
         }
 
         start = time.time()
@@ -126,11 +155,11 @@ def run_xgboost_impact_analysis(
             direction = "unknown"
 
             if series is not None and lag is not None and len(series) > lag:
-                x = np.array(series[:-lag])
+                x = _to_numeric(series[:-lag])
                 y_lagged = y[lag:]
                 direction = _pearson_direction(x, y_lagged)
             elif series is not None:
-                direction = _pearson_direction(np.array(series), y)
+                direction = _pearson_direction(_to_numeric(series), y)
 
             strength = gain / total_gain if total_gain > 0 else 0.0
 

@@ -1,9 +1,7 @@
 {
-  "include": ["aegis_ai", "aegis_prod"],
-  "executionEnvironments": [
-    {
-      "root": ".",
-      "extraPaths": [".", "aegis_ai", "aegis_prod"]
-    }
+  "venvPath": "c:\\Users\\chinm\\aegis_ai",
+  "venv": "venv",
+  "extraPaths": [
+    "c:\\Users\\chinm\\aegis_ai"
   ]
 }

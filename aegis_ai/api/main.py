@@ -2,8 +2,24 @@
 
 import asyncio
 import logging
+from pathlib import Path
+
+import anyio
+
+# Load .env BEFORE importing app modules so OllamaProvider/etc. read fresh values.
+# override=True so .env wins over stale persistent OS env vars (e.g. an older
+# AEGIS_OLLAMA_MODEL pointing at a model that isn't installed).
+try:
+    from dotenv import load_dotenv
+    _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+    if _ENV_FILE.exists():
+        load_dotenv(_ENV_FILE, override=True)
+except ImportError:
+    pass
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware import Middleware
 
 from aegis_ai.api.routes import router
@@ -52,6 +68,17 @@ app = FastAPI(
     middleware=middleware,
     docs_url="/docs",
     redoc_url="/redoc",
+)
+
+# ─────────────────────────────────────────────
+# CORS — Allow Next.js frontend
+# ─────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -134,12 +161,34 @@ async def monitoring_loop():
 # ─────────────────────────────────────────────
 # Startup
 # ─────────────────────────────────────────────
+async def _llm_warmup_background():
+    """
+    Pre-load the local LLM into RAM so the first /chat request hits a warm
+    model instead of paying a 90-180s cold-load. Fire-and-forget; the chat
+    endpoint also has its own keyword-fallback so this is best-effort.
+    """
+    try:
+        from aegis_ai.llm.call_gemma import warmup_gemma
+        # Run the blocking HTTP call off the event loop.
+        result = await anyio.to_thread.run_sync(warmup_gemma)
+        if result.get("ok"):
+            log.info(
+                f"[LLM_WARMUP] model={result.get('model')} "
+                f"loaded={result.get('loaded')} elapsed_ms={result.get('elapsed_ms')}"
+            )
+        else:
+            log.warning(f"[LLM_WARMUP] failed: {result.get('error')}")
+    except Exception as e:
+        log.warning(f"[LLM_WARMUP] exception: {e}")
+
+
 @app.on_event("startup")
 async def startup():
     log.info("[AEGIS] Starting up...")
     Base.metadata.create_all(bind=engine)
     asyncio.create_task(heartbeat_snapshot())
     asyncio.create_task(monitoring_loop())
+    asyncio.create_task(_llm_warmup_background())
     log.info("[AEGIS] Ready.")
 
 
@@ -150,11 +199,13 @@ async def startup():
 async def ingest(port: str, request: Request):
 
     payload = await request.json()
+    tenant_id = str((request.scope.get("aegis.tenant") or {}).get("id") or "system")
 
     state = {
         "physics": {},
         "system_logs": [],
         "intelligence": {},
+        "tenant_id": tenant_id,
     }
 
     audit.log(payload, [], port, "API_INGEST")

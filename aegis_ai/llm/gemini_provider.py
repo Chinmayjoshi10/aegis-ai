@@ -17,7 +17,7 @@ import time
 
 log = logging.getLogger("aegis_ai.llm.gemini_provider")
 
-_DEFAULT_MODEL = "gemini-2.0-flash"
+_DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class GeminiProvider:

@@ -69,7 +69,8 @@ class AccountingAdapter:
 
         # Ground-truth commit for runway decay d(Cash)/dt
         self.store.write(
-            [{"domain": "finance", "metric": "cash_reserve", "value": cash}],
+            tenant=str(state.get("tenant_id") or "system"),
+            events=[{"domain": "finance", "metric": "cash_reserve", "value": cash}],
             confidence=confidence
         )
 

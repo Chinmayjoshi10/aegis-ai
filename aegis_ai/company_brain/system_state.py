@@ -31,7 +31,7 @@ def resolve_system_state(
     row_count: int,
     insights: List[Dict],
     miu_threshold: int = 1000,
-    confidence_threshold: float = 0.7,
+    confidence_threshold: float = 0.50,
     regime_history: Optional[List[Dict]] = None,   # ✅ NEW, OPTIONAL
 ) -> SystemState:
     """

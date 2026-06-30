@@ -116,6 +116,20 @@ class DominanceDetector:
         self, col: str, series: pd.Series
     ) -> Optional[Dict[str, Any]]:
 
+        # R5 / W6: noise-floor guard applied at the entry point so it
+        # covers BOTH point dominance (discretized rounding catches near-
+        # constant columns) and range dominance. A column with coefficient
+        # of variation below 1e-3 is effectively constant — any "structural
+        # concentration" finding is a data bug, not a decision-worthy pattern.
+        try:
+            vals = series.astype(float)
+            m = float(vals.mean())
+            s = float(vals.std())
+            if abs(m) > 1e-12 and s >= 0 and (s / abs(m)) < 1e-3:
+                return None
+        except Exception:
+            pass  # fail-open
+
         # 1️⃣ Try point dominance first (exact or discretized)
         point_result = self._detect_numeric_point_dominance(col, series)
         if point_result:
@@ -169,6 +183,15 @@ class DominanceDetector:
         values = series.astype(float)
         mean = values.mean()
         std = values.std()
+
+        # R5 / W6: noise-floor guard. A column with coefficient of variation
+        # below 1e-3 is effectively constant — any "structural concentration"
+        # signal is misleading to business users ("your sensor is stuck at
+        # one value" is a data bug, not a decision-worthy pattern).
+        if abs(mean) > 1e-12 and std >= 0:
+            cv = std / abs(mean)
+            if cv < 1e-3:
+                return None
 
         # ---- STD BAND (PRIMARY) ----
         if std > 0:
